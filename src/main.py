@@ -5,11 +5,12 @@ import random
 import json
 
 # ═══════════════════════════════════════════════════════
-TARGET          = 5001
+TARGET          = 5000
 NEWS_PER_PAGE   = 100
+BAR_LEN         = 50
+OUTPUT_DIR      = "json"
 OUTPUT_FILENAME = "data"
 
-# Много коротких запросов = разные выдачи Google
 QUERIES = [
     # Basis
     "noticias","política","economía","deportes","tecnología",
@@ -62,8 +63,7 @@ USER_AGENTS = [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/119.0",
 ]
 
-session = requests.Session()
-
+session = requests.Session() # MAKE A SESSION
 
 def getpage(query, page, region, max_retries=3):
     hl, gl, ceid, _ = region
@@ -79,7 +79,7 @@ def getpage(query, page, region, max_retries=3):
         "Connection":      "keep-alive",
     }
 
-    for attempt in range(max_retries):
+    for attempt in range(max_retries): # RETRIES FOR SAFETY
         try:
             r = session.get(url, headers=headers, timeout=20, allow_redirects=True)
 
@@ -89,82 +89,88 @@ def getpage(query, page, region, max_retries=3):
                 if not items:
                     return []
 
-                result = []
+                res = []
                 for item in items:
                     desc     = item.find("description")
-                    desc_txt = BeautifulSoup(desc.text, "html.parser").get_text() if desc and desc.text else ""
-                    result.append({
-                        "title":       item.find("title").text   if item.find("title")   else "",
-                        "link":        item.find("link").text    if item.find("link")    else "",
-                        "date":        item.find("pubDate").text if item.find("pubDate") else "",
-                        "source":      item.find("source").text  if item.find("source")  else "",
-                        "description": desc_txt,
+                    res.append({
+                        "title":       item.find("title").text    if item.find("title")    else "",
+                        "link":        item.find("link").text     if item.find("link")     else "",
+                        "date":        item.find("pubDate").text  if item.find("pubDate")  else "",
+                        "source":      item.find("source").text   if item.find("source")   else "",
+                        "description": BeautifulSoup(desc.text, "html.parser").get_text()  if desc and desc.text else "",
+                        "author":      item.find("author").text   if item.find("author")   else "",
+                        "category":    item.find("category").text if item.find("category") else "",
+                        "comments":    item.find("comments").text if item.find("comments") else "",
+                        "page":        page,
                         "query":       query,
                         "region":      region[3],
                     })
-                return result
+                return res
 
-            elif r.status_code == 429:
+            elif r.status_code == 429: # TOO AGRESSIVE PARSING
                 wait = 30 * (attempt + 1)
-                print(f" [429 – ждём {wait}с]", end="", flush=True)
+                print(f" [429 – wait {wait}s]", end="", flush=True)
                 time.sleep(wait)
-            else:
+            else: # ERROR -> RETRY
                 time.sleep(5 * (attempt + 1))
 
-        except requests.exceptions.ConnectionError:
+        except requests.exceptions.ConnectionError: # CONNECTION ERROR
             time.sleep(10 * (attempt + 1))
-        except Exception:
+        except Exception: # EXCEPTION
             time.sleep(5 * (attempt + 1))
 
     return []
 
+def combo_analy(buf, combo, seen_links, seen_titles): # Procedure
+    query, region = combo
+
+    page = 1
+    while len(buf) < TARGET:
+        batch = getpage(query, page, region)
+
+        if not batch:
+            break
+
+        for news in batch:
+            link  = news["link"].strip()
+            title = news["title"].strip().lower()
+
+            if link in seen_links or title in seen_titles: # SKIP DOUBLICATES
+                return buf
+
+            seen_links.add(link); seen_titles.add(title)
+            buf.append(news)
+
+            if len(buf) >= TARGET:
+                return buf
+
+        page += 1
+        rdelay(1.5, 2.7)
+
+    return buf
 
 def collect():
+    print(f"Target: {TARGET}\n")
+
     all_news    = []
     seen_links  = set()
     seen_titles = set()
 
-    # Перемешиваем комбинации чтобы не долбить один регион подряд
+    # MAKING COMBOS region x query
     combos = [(q, r) for q in QUERIES for r in REGIONS]
     random.shuffle(combos)
 
-    print(f"Target: {TARGET}\n")
-
-    for i, (query, region) in enumerate(combos):
+    # ANALIZING COMBOS
+    for _, combo in enumerate(combos):
+        # skip
         if len(all_news) >= TARGET:
             break
 
-        done = False
-        page = 1
+        all_news = combo_analy(all_news, combo, seen_links, seen_titles)
 
-        while not done and len(all_news) < TARGET:
-            batch = getpage(query, page, region)
-
-            if not batch:
-                break
-
-            for news in batch:
-                link  = news["link"].strip()
-                title = news["title"].strip().lower()
-
-                if link in seen_links or title in seen_titles:
-                    done = True   # первый дубль — уходим
-                    break
-
-                seen_links.add(link)
-                seen_titles.add(title)
-                all_news.append(news)
-
-                if len(all_news) >= TARGET:
-                    done = True
-                    break
-
-            page += 1
-            rdelay(1.5, 2.7)
-
-        # прогресс-строка
+        # progress bar
         bar_done = int(len(all_news) / TARGET * 100)
-        bar(bar_done, 30)
+        bar(bar_done, BAR_LEN)
 
     print() 
     return all_news
@@ -177,18 +183,18 @@ def rdelay(a, b):
     time.sleep(random.uniform(a, b))
     
 def superprint(s, n=50):
-    print("=" * n)
+    print("═" * n)
     print(f"{s:^{n}}")
-    print("=" * n)
+    print("═" * n)
 
 def main():
-    superprint('ПАРСЕР GOOGLE NEWS')
+    superprint('GOOGLE NEWS PARSER')
 
     news = collect()
     print(f"\n✅ Collected uniques: {len(news)}")
 
-    with open(f"{OUTPUT_FILENAME}{TARGET}.json", "w", encoding="utf-8") as f:
+    with open(f"{OUTPUT_DIR}/{OUTPUT_FILENAME}{TARGET}.json", "w", encoding="utf-8") as f:
         json.dump(news, f, ensure_ascii=False, indent=2)
-    print(f"💾 {OUTPUT_FILENAME}.json")
+    print(f"💾 {OUTPUT_DIR}/{OUTPUT_FILENAME}.json")
 
 main()
