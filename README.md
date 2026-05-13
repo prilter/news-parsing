@@ -1,5 +1,5 @@
 # Added:  
-data generator script  
+dataset analy script  
   
 # Targets  
 check targets.md
