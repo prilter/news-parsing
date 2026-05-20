@@ -5,10 +5,11 @@ import random
 import json
 
 # ═══════════════════════════════════════════════════════
-TARGET          = 5000 
+TARGET          = 100
 NEWS_PER_PAGE   = 100
 BAR_LEN         = 25
-OUTPUT          = "json/data"
+OUTPUTNAME      = "data"
+OUTPUTDIR       = "json"
 
 QUERIES = [
     # Basis
@@ -185,14 +186,16 @@ def superprint(s, n=50):
     print(f"{s:^{n}}")
     print("═" * n)
 
+import os
 def main():
     superprint('GOOGLE NEWS PARSER')
 
     news = collect()
     print(f"\n✅ Collected uniques: {len(news)}")
 
-    with open(f"{OUTPUT}{TARGET}.json", "w", encoding="utf-8") as f:
+    os.makedirs(OUTPUTDIR, exist_ok=True) # MAKE JSON DIR
+    with open(f"{OUTPUTDIR}/{OUTPUTNAME}{TARGET}.json", "w", encoding="utf-8") as f:
         json.dump(news, f, ensure_ascii=False, indent=2)
-    print(f"💾 {OUTPUT}{TARGET}.json")
+    print(f"💾 {OUTPUTDIR}/{OUTPUTNAME}{TARGET}.json")
 
 main()
